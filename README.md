@@ -5,7 +5,9 @@ You can swap your face from a webcam or the face in the video using trained face
 This plugin is based on Face Swap(DFM) and implements a complete face swapping workflow in Unreal Engine using C++ and ONNXRuntime with DirectML(DX12) and Compute Shader. Therefore, it offers better performance than DeepFaceLive.
 
 This plugin includes all the source code but does not provide face-swapping models. You can download test models from DeepFaceLive or train new models using DeepFaceLab.
+
 https://github.com/iperov/DeepFaceLive
+
 https://github.com/iperov/DeepFaceLab
 
 Currently, only Windows operating system and DirectX12 are supported.
@@ -62,6 +64,7 @@ https://drive.google.com/file/d/1DPUP7bI8J10DQY9tBE6yE36EGdlY8Iva/view
 ### Start Face Swapping for Developer
 #### Deep Face Live for Unreal Engine
 https://www.unrealengine.com/marketplace/en-US/product/deep-face-live
+
 You can purchase the source code of the Deep Face Live plugin from the link above and then place it in the Plugins directory of the current demo project.
 
 ## Troubleshooting & Technical Support
