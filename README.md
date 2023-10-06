@@ -1,6 +1,6 @@
 ## Introduction
 
-![[Docs/Preview.png]]
+![](./Docs/Preview.png)
 You can swap your face from a webcam or the face in the video using trained face models in UnrealEngine.
 This plugin is based on Face Swap(DFM) and implements a complete face swapping workflow in Unreal Engine using C++ and ONNXRuntime with DirectML(DX12) and Compute Shader. Therefore, it offers better performance than DeepFaceLive.
 
