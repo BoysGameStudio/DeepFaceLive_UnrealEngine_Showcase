@@ -59,8 +59,8 @@ Choose a face from the table below that you'd like to replace, and then download
 
 ### Test the Face Swap Effect Using Pre-built Package
 This is a package built from the current Unreal Engine project.
-DeepFaceLiveShowcase_Development.zip
-https://drive.google.com/file/d/1DPUP7bI8J10DQY9tBE6yE36EGdlY8Iva/view?usp=sharing
+DeepFaceLiveShowcase_Dev_DX12_SM5&6.zip
+https://drive.google.com/file/d/1DuUYggx2OjEzrHJstRE3ALiMv9To3Ahc/view?usp=sharing
 
 ### Start Face Swapping for Developer
 #### Deep Face Live for Unreal Engine
