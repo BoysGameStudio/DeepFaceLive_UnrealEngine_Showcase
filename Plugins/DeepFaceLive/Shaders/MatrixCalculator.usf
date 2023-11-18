@@ -1,0 +1,34 @@
+// Copyright Alan Liu 2022-2023. All Rights Reserved.
+
+#include "/Engine/Public/Platform.ush"
+#include "/Engine/Private/ColorUtils.ush"
+
+RWTexture2D<float4> OutputTexture;
+Texture2D<float4> InputBGRTexture;
+float4x4 AffineMatrix;
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void WarpAffine(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    float2x2 _AffineMatrix = (float2x2) AffineMatrix;
+    float2 Offset = AffineMatrix._m02_m12;
+	
+    float2 PixelCoordinates = mul(_AffineMatrix, DTid.xy) + Offset;
+    
+    OutputTexture[DTid.xy].a = 1.0f;
+
+    uint2 InputSize;
+    InputBGRTexture.GetDimensions(InputSize.x, InputSize.y);
+
+    if (PixelCoordinates.x >= 0 && PixelCoordinates.x < InputSize.x && PixelCoordinates.y >= 0 && PixelCoordinates.y < InputSize.y)
+    {
+		OutputTexture[DTid.xy].rgb = LinearToSrgb(InputBGRTexture[PixelCoordinates].rgb);
+    }
+    else
+    {
+        OutputTexture[DTid.xy].rgb = float3(0, 0, 0);
+    }
+}

@@ -1,0 +1,152 @@
+// Copyright Alan Liu 2022-2023. All Rights Reserved.
+
+#include "/Engine/Public/Platform.ush"
+
+float4 scale;
+StructuredBuffer<float> raw_boxes;
+StructuredBuffer<float> raw_anchors;
+RWStructuredBuffer<float> boxes;
+
+uint num_coords; // options_.num_coords
+int reverse_output_order; // options_.reverse_output_order ? 1 : 0
+int apply_exponential; // options_.apply_exponential_on_box_size ? 1 : 0
+int box_coord_offset; // options_.box_coord_offset
+int num_keypoints; // options_.num_keypoints
+int keypt_coord_offset; // options_.keypoint_coord_offset
+int num_values_per_keypt; // options_.num_values_per_keypoint
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void DecodeDetectionBoxes(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+	uint g_idx = DTid.x; // box index
+	uint box_offset = g_idx * num_coords + uint(box_coord_offset);
+	uint anchor_offset = g_idx * uint(4); // check kNumCoordsPerBox
+
+	float y_center, x_center, h, w;
+
+	if (reverse_output_order == int(0))
+	{
+		y_center = raw_boxes[box_offset + uint(0)];
+		x_center = raw_boxes[box_offset + uint(1)];
+		h = raw_boxes[box_offset + uint(2)];
+		w = raw_boxes[box_offset + uint(3)];
+	}
+	else
+	{
+		x_center = raw_boxes[box_offset + uint(0)];
+		y_center = raw_boxes[box_offset + uint(1)];
+		w = raw_boxes[box_offset + uint(2)];
+		h = raw_boxes[box_offset + uint(3)];
+	}
+
+	float anchor_yc = raw_anchors[anchor_offset + uint(0)];
+	float anchor_xc = raw_anchors[anchor_offset + uint(1)];
+	float anchor_h = raw_anchors[anchor_offset + uint(2)];
+	float anchor_w = raw_anchors[anchor_offset + uint(3)];
+
+	x_center = x_center / scale.x * anchor_w + anchor_xc;
+	y_center = y_center / scale.y * anchor_h + anchor_yc;
+
+	if (apply_exponential == int(1))
+	{
+		h = exp(h / scale.w) * anchor_h;
+		w = exp(w / scale.z) * anchor_w;
+	}
+	else
+	{
+		h = (h / scale.w) * anchor_h;
+		w = (w / scale.z) * anchor_w;
+	}
+
+	float ymin = y_center - h / 2.0;
+	float xmin = x_center - w / 2.0;
+	float ymax = y_center + h / 2.0;
+	float xmax = x_center + w / 2.0;
+
+	boxes[box_offset + uint(0)] = ymin;
+	boxes[box_offset + uint(1)] = xmin;
+	boxes[box_offset + uint(2)] = ymax;
+	boxes[box_offset + uint(3)] = xmax;
+
+	if (num_keypoints > int(0))
+	{
+		for (int k = 0; k < num_keypoints; ++k)
+		{
+			int kp_offset = int(g_idx * num_coords) + keypt_coord_offset + k * num_values_per_keypt;
+			float kp_y, kp_x;
+			if (reverse_output_order == int(0))
+			{
+				kp_y = raw_boxes[kp_offset + int(0)];
+				kp_x = raw_boxes[kp_offset + int(1)];
+			}
+			else
+			{
+				kp_x = raw_boxes[kp_offset + int(0)];
+				kp_y = raw_boxes[kp_offset + int(1)];
+			}
+			boxes[kp_offset + int(0)] = kp_x / scale.x * anchor_w + anchor_xc;
+			boxes[kp_offset + int(1)] = kp_y / scale.y * anchor_h + anchor_yc;
+		}
+	}
+}
+
+//=============================================//
+
+#define FLT_MAX 1.0e+37
+
+groupshared float local_scores[THREADGROUPSIZE_Y]; // num_classes_
+
+StructuredBuffer<float> raw_scores;
+RWStructuredBuffer<float> scored_boxes;
+
+uint num_classes; // num_classes_
+int apply_sigmoid; // options_.sigmoid_score ? 1 : 0
+int apply_clipping_thresh; // options_.has_score_clipping_thresh() ? 1 : 0
+float clipping_thresh; // options_.has_score_clipping_thresh() ? options_.score_clipping_thresh : 0
+int ignore_class_0; // !IsClassIndexAllowed(0)
+
+float optional_sigmoid(float x)
+{
+	if (apply_sigmoid == int(0)) return x;
+	if (apply_clipping_thresh == int(1))
+	{
+		x = clamp(x, -clipping_thresh, clipping_thresh);
+	}
+	x = 1.0 / (1.0 + exp(-x));
+	return x;
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y /* num_classes_ */, THREADGROUPSIZE_Z)]
+void ScoreDetectionBoxes(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+	uint g_idx = DTid.x; // box idx
+	uint s_idx = GTid.y; // score/class idx
+
+	// load all scores into shared memory
+	float score = raw_scores[g_idx * num_classes + s_idx];
+	local_scores[s_idx] = optional_sigmoid(score);
+	GroupMemoryBarrierWithGroupSync();
+
+	// find max score in shared memory
+	if (s_idx == uint(0))
+	{
+		float max_score = -FLT_MAX;
+		float max_class = -1.0;
+		for (int i = ignore_class_0; i < int(num_classes); ++i)
+		{
+			if (local_scores[i] > max_score)
+			{
+				max_score = local_scores[i];
+				max_class = float(i);
+			}
+		}
+		scored_boxes[g_idx * uint(2) + uint(0)] = max_score;
+		scored_boxes[g_idx * uint(2) + uint(1)] = max_class;
+	}
+}

@@ -1,0 +1,90 @@
+// Copyright Alan Liu 2022-2023. All Rights Reserved.
+
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/GammaCorrectionCommon.ush"
+#include "/Engine/Private/ColorUtils.ush"
+
+uint Height;
+uint Width;
+float Scale;
+float Offset;
+StructuredBuffer<float> Input_Tensor;
+RWTexture2D<float4> Output_Surface; // Output Alpha Texture
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void TensorGRAY8ToSurfaceGRAY8(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    if (DTid.x < Width && DTid.y < Height)
+    {
+	    uint threadOffset = Width * DTid.y + DTid.x;
+	    float4 pixel = float4(0.0, 0.0, 0.0, 0.0);
+	    pixel.r = Input_Tensor[threadOffset] ;// / 255.0;
+	    Output_Surface[DTid.xy] = pixel;
+    }
+}
+
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void ConvertNHWC2BGRA(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    if (DTid.x < Width && DTid.y < Height)
+    {
+        uint threadOffset = (Width * DTid.y + DTid.x) * 3;
+        float4 pixel = float4(0.0, 0.0, 0.0, 0.0);
+        pixel.b = Input_Tensor[threadOffset + 0]; // / 255.0;
+        pixel.g = Input_Tensor[threadOffset + 1]; // / 255.0;
+        pixel.r = Input_Tensor[threadOffset + 2]; // / 255.0;
+        pixel.a = 1.0f;
+
+        // use this must set RT to BGRA(no SRGB)
+        // pixel.xyz = sRGBToLinear(pixel.xyz); 
+        Output_Surface[DTid.xy] = pixel;
+    }
+}
+
+Texture2D<float4> Input_Texture;
+RWStructuredBuffer<float> Output_Buffer;
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void ConvertBGRA2NHWC(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+	if (DTid.x < Width && DTid.y < Height)
+	{
+		float4 inputPixel = Input_Texture[DTid.xy];
+		uint threadOffset = (Width * DTid.y + DTid.x) * 3;
+		Output_Buffer[threadOffset + 0] = inputPixel.b * Scale + Offset;
+		Output_Buffer[threadOffset + 1] = inputPixel.g * Scale + Offset;
+		Output_Buffer[threadOffset + 2] = inputPixel.r * Scale + Offset;
+	}
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void ConvertBGRA2NCHW(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    if (DTid.x < Width && DTid.y < Height)
+    {
+	    float4 inputPixel = Input_Texture.Load(DTid);
+
+	    // Calculate the size of a single plan of color. 
+	    uint planeSize = Width * Height;
+	    uint threadOffset = Width * DTid.y + DTid.x;
+
+        inputPixel.xyz = LinearToSrgb(inputPixel.xyz);
+
+	    Output_Buffer[threadOffset] = inputPixel.b;
+	    Output_Buffer[threadOffset + planeSize] = inputPixel.g;
+	    Output_Buffer[threadOffset + planeSize * 2] = inputPixel.r;
+    }
+}

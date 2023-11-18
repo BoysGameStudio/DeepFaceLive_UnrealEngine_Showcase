@@ -1,0 +1,72 @@
+// Copyright Alan Liu 2022-2023. All Rights Reserved.
+
+#include "/Engine/Public/Platform.ush"
+#include "/Engine/Private/ColorUtils.ush"
+
+RWTexture2D<float4> OutputTexture;
+Texture2D<float4> InputBGRTexture;
+
+// must be float4, cannot use float https://gamedev.net/forums/topic/702319-how-to-upload-alpha-texture-to-compute-shader/5406123/
+Texture2D<float4> InputAlphaTexture;
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void AlphaBlending(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    if (InputAlphaTexture[DTid.xy].r > 0.5f)
+    {
+        OutputTexture[DTid.xy].rgba = float4(InputBGRTexture[DTid.xy].rgb, 1.0);
+    }
+    else
+    {
+        OutputTexture[DTid.xy].rgba = float4(0, 0, 0, 0);
+    }
+}
+
+Texture2D<float4> InputFaceTexture;
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void TextureMergeByMask(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    OutputTexture[DTid.xy].a = 1.0f;
+
+    float3 srccolor = InputBGRTexture[DTid.xy].rgb;
+    float3 facecolor = InputFaceTexture[DTid.xy].rgb;
+    float mask = InputAlphaTexture[DTid.xy].r;
+
+    srccolor = LinearToSrgb(srccolor);
+    facecolor = sRGBToLinear(facecolor);
+    OutputTexture[DTid.xy].rgb = srccolor * (1.0f - mask) + facecolor * mask;
+
+  //  if opacity == 1.0:
+		//out_merged_frame = frame_image * (one_f - frame_face_mask) + frame_face_swap_img * frame_face_mask
+  //  else:
+		//out_merged_frame = frame_image * (one_f - frame_face_mask) + frame_image * frame_face_mask * (one_f - opacity) + frame_face_swap_img * frame_face_mask * opacity
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void TextureByMask(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    OutputTexture[DTid.xy].a = 1.0f;
+
+    float3 srccolor = InputBGRTexture[DTid.xy].rgb;
+    float3 facecolor = InputFaceTexture[DTid.xy].rgb;
+    float mask = InputAlphaTexture[DTid.xy].r;
+
+    srccolor = LinearToSrgb(srccolor);
+    facecolor = sRGBToLinear(facecolor);
+    OutputTexture[DTid.xy].rgb = srccolor * (1.0f - mask) + facecolor * mask;
+
+  //  if opacity == 1.0:
+		//out_merged_frame = frame_image * (one_f - frame_face_mask) + frame_face_swap_img * frame_face_mask
+  //  else:
+		//out_merged_frame = frame_image * (one_f - frame_face_mask) + frame_image * frame_face_mask * (one_f - opacity) + frame_face_swap_img * frame_face_mask * opacity
+}

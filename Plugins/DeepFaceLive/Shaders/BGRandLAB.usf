@@ -1,0 +1,108 @@
+// Copyright Alan Liu 2022-2023. All Rights Reserved.
+
+#include "/Engine/Public/Platform.ush"
+#include "/Engine/Private/ColorUtils.ush"
+#include "/Engine/Private/ColorSpace.ush"
+
+
+Texture2D<float4> InputBGR;
+RWStructuredBuffer<float3> OutputLAB;
+
+StructuredBuffer<float3> InputLAB;
+RWTexture2D<float4> OutputBGR;
+
+RWStructuredBuffer<float3> OutputMean;
+uint OutputIndex;
+
+StructuredBuffer<float3> InputMean;
+
+[numthreads(1, 1, 1)]
+void LABMean(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    uint BufferLength;
+    uint Stride;
+
+    InputLAB.GetDimensions(BufferLength, Stride);
+
+    float3 Sum;
+
+    for (uint i = 0; i < BufferLength; ++i)
+    {
+        Sum += InputLAB[i];
+    }
+
+    OutputMean[OutputIndex] = Sum / BufferLength;
+
+    float3 std_deviation = 0.0f;
+    for (uint i = 0; i < BufferLength; ++i)
+    {
+        std_deviation += pow(InputLAB[i] - OutputMean[OutputIndex], 2);
+    }
+    
+    OutputMean[OutputIndex + 1] = sqrt(std_deviation / BufferLength);
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void BGR2LAB(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    uint2 Dim;
+    InputBGR.GetDimensions(Dim.x, Dim.y);
+
+    uint LinearIndex = DTid.x + DTid.y * Dim.x;
+
+    float3 _rgb = InputBGR[DTid.xy].rgb;
+    _rgb = sRGBToLinear(_rgb);
+    OutputLAB[LinearIndex].xyz = LinearRGB_2_LAB(_rgb);
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void LAB2BGR(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    uint2 Dim;
+    OutputBGR.GetDimensions(Dim.x, Dim.y);
+
+    uint LinearIndex = DTid.x + DTid.y * Dim.x;
+
+    float3 _lab = InputLAB[LinearIndex].xyz;
+
+    OutputBGR[DTid.xy].a = 1.0f;
+    OutputBGR[DTid.xy].rgb = LAB_2_LinearRGB(_lab);
+}
+
+// scale by the standard deviations using reciprocal of paper proposed factor
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void ConvertLAB2BGRByScaleSD(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                       uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                       uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                       uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+    uint BufferLength;
+    uint Stride;
+    InputLAB.GetDimensions(BufferLength, Stride);
+
+    uint2 Dim;
+    OutputBGR.GetDimensions(Dim.x, Dim.y);
+
+    uint LinearIndex = DTid.x + DTid.y * Dim.x;
+
+    float3 Source = InputLAB[LinearIndex];
+
+    float3 LikeMean = InputMean[0];
+    float3 LikeStd = InputMean[1];
+    float3 SourceMean = InputMean[2];
+    float3 SourceStd = InputMean[3];
+
+    float3 Result = (Source - SourceMean) * LikeStd / SourceStd + LikeMean;
+
+    OutputBGR[DTid.xy].a = 1.0f;
+    OutputBGR[DTid.xy].rgb = LinearToSrgb(LAB_2_LinearRGB(Result));
+}

@@ -1,0 +1,95 @@
+// Copyright Alan Liu 2022-2023. All Rights Reserved.
+
+#include "/Engine/Public/Platform.ush"
+
+// x,y,radius
+uint NumCircle;
+StructuredBuffer<float3> CircleBuffer;
+float4 CircleColor;
+
+struct LineData
+{
+	float2 Point1;
+	float2 Point2;
+};
+
+uint NumLines;
+StructuredBuffer<LineData> LinesBuffer;
+
+Texture2D<float4> InputTexture;
+RWTexture2D<float4> OutputTexture;
+
+bool IsDrawCircle(float2 CurrentPos, StructuredBuffer<float3> CircleBuffer, uint NumCircle)
+{
+	for (int i = 0; i < NumCircle; ++i)
+	{
+		float2 CirclePos = CircleBuffer[i].xy;
+		float rSquared = CircleBuffer[i].z * CircleBuffer[i].z;
+
+		float a = CurrentPos.x - CirclePos.x;
+		float b = CurrentPos.y - CirclePos.y;
+
+		if ((a * a + b * b) < rSquared)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void DrawCircle(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                                                                                     uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                                                                                     uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                                                                                     uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+	uint2 DstDim;
+	OutputTexture.GetDimensions(DstDim.x, DstDim.y);
+	if (DTid.x < DstDim.x && DTid.y < DstDim.y)
+	{
+		if (IsDrawCircle(DTid.xy, CircleBuffer, NumCircle))
+		{
+			OutputTexture[DTid.xy] = CircleColor;
+		}
+		else
+		{
+            OutputTexture[DTid.xy] = pow(InputTexture[DTid.xy], 0.454545);
+        }
+	}
+}
+
+float Line(float2 p, float2 a, float2 b)
+{
+	float2 pa = p - a, ba = b - a;
+	float h = saturate(dot(pa, ba) / dot(ba, ba));
+	float2 d = pa - ba * h;
+	return dot(d, d);
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void DrawLines(uint2 id : SV_DispatchThreadID)
+{
+	const float thickness = 0.00001;
+
+	uint2 DstDim;
+	OutputTexture.GetDimensions(DstDim.x, DstDim.y);
+	if (id.x < DstDim.x && id.y < DstDim.y)
+	{
+		float2 uv = float2((float)id.x / DstDim.x, (float)id.y / DstDim.y);
+
+		float kk = 1.f;
+		for (int i = 0; i < NumLines; ++i)
+		{
+			LineData a = LinesBuffer[i];
+			float k = Line(uv, a.Point1, a.Point2);
+
+			if (k < kk)
+			{
+				kk = k;
+			}
+		}
+		float alpha = smoothstep(0.0, thickness, kk);
+		const float4 SrcColor = pow(InputTexture[id.xy], 0.454545);
+		OutputTexture[id.xy] = lerp(float4(1, 1, 1, 1), SrcColor, alpha);
+	}
+}

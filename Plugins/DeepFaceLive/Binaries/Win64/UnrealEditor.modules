@@ -1,0 +1,9 @@
+{
+	"BuildId": "27405482",
+	"Modules": 
+	{
+		"DeepFaceLive": "UnrealEditor-DeepFaceLive.dll",
+		"ONNXInference": "UnrealEditor-ONNXInference.dll",
+		"TextureUtils": "UnrealEditor-TextureUtils.dll"
+	}
+}

@@ -1,0 +1,3 @@
+[submodule "Plugins/EasyFileDialog"]
+	path = Plugins/EasyFileDialog
+	url = https://github.com/BoysGameStudio/EasyFileDialog

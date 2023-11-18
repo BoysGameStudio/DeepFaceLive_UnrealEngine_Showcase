@@ -1,0 +1,113 @@
+// Copyright Alan Liu 2022-2023. All Rights Reserved.
+
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/GammaCorrectionCommon.ush"
+#include "/Engine/Private/ColorUtils.ush"
+
+SamplerState Sampler;
+Texture2D<float4> InputTexture;
+RWTexture2D<float4> OutputTexture;
+
+float ScaleFactor;
+float2 OutputOffset;
+
+int2 CropExtent;
+int2 CropCenter;
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void TextureScaling(uint3 threadId : SV_DispatchThreadID, uint3 groupId : SV_GroupID, uint3 groupThreadId : SV_GroupThreadID, uint numThreads : SV_GroupIndex)
+{
+	float2 inputDimensions;
+	float2 outputDimensions;
+
+	InputTexture.GetDimensions(inputDimensions.x, inputDimensions.y);
+	OutputTexture.GetDimensions(outputDimensions.x, outputDimensions.y);
+
+	// float inputAspectRatio = inputDimensions.x / inputDimensions.y;
+	// float outputAspectRatio = outputDimensions.x / outputDimensions.y;
+
+	// float scaleFactor = outputAspectRatio > inputAspectRatio ? outputDimensions.y / inputDimensions.y : outputDimensions.x / inputDimensions.x;
+	
+	float2 outputPixelCoords = uint2(threadId.xy);
+	float2 inputPixelCoords = outputPixelCoords / ScaleFactor;
+
+	// float2 outputOffset = max(outputDimensions - (inputDimensions * scaleFactor), 0) / 2;
+	outputPixelCoords += OutputOffset; // float2(0, 49);
+
+	if (inputPixelCoords.x < inputDimensions.x && inputPixelCoords.y < inputDimensions.y)
+	{
+		float2 texCoord = float2(inputPixelCoords) / float2(inputDimensions);
+		float4 inputColor = InputTexture.SampleLevel(Sampler, texCoord, 0);
+        inputColor.xyz = LinearToSrgb(inputColor.xyz);
+        OutputTexture[int2(outputPixelCoords)] = inputColor;
+    }
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void TextureCropping(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                                                                                          uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                                                                                          uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                                                                                          uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+	// Calculate the world coordinates of the grid point using the bounding box parameters
+	const float2 WorldPoint = DTid.xy + CropCenter - CropExtent / 2;
+    float4 SrcColor = InputTexture[WorldPoint];
+    SrcColor.xyz = LinearToSrgb(SrcColor.xyz);
+    OutputTexture[DTid.xy] = SrcColor;
+}
+
+int2 out_size;
+float alpha;
+float beta;
+float4x4 transform_matrix;
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void TextureCroppingWithMatrix(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+                                                                                          uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+                                                                                          uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+                                                                                          uint GI : SV_GroupIndex) //atm: 0...256 in columns (X)           --> "flattened" index of a thread within a group)
+{
+	int out_width = out_size.x;
+    int out_height = out_size.y;
+
+    int2 gid = int2(DTid.xy);
+    if (gid.x >= out_width || gid.y >= out_height) {
+        return;
+    }
+
+    // transform from image.width, image.height range to [0, 1]
+    float normal_x = (float(gid.x) + 0.5f) / float(out_width);
+    float normal_y = (float(gid.y) + 0.5f) / float(out_height);
+    float4 tc = float4(normal_x, normal_y, 0.0, 1.0);
+
+    // Apply transformation from roi coordinates to original image coordinates.
+	tc = mul(transform_matrix, tc);
+
+#ifdef INPUT_STARTS_AT_BOTTOM
+    // Opengl texture sampler has origin in lower left corner,
+    // so we invert y coordinate.
+    tc.y = 1.0f - tc.y;
+#endif  // INPUT_STARTS_AT_BOTTOM
+
+    float4 SrcColor = InputTexture.SampleLevel(Sampler, tc.xy, 0);
+    SrcColor.xyz = LinearToSrgb(SrcColor.xyz);
+
+    //float4 src_value = alpha * SrcColor + beta;
+
+#ifdef CUSTOM_ZERO_BORDER_MODE
+    float out_of_bounds =
+      float(tc.x < 0.0 || tc.x > 1.0 || tc.y < 0.0 || tc.y > 1.0);
+    src_value = mix(src_value, float4(0.0, 0.0, 0.0, 0.0), out_of_bounds);
+#endif
+
+	// const int linear_index = gid.y * out_width + gid.x;
+
+    // output_data.elements is populated as though it contains vec3 elements.
+    // int first_component_index = 3 * linear_index;
+    // output_data.elements[first_component_index] = src_value.r;
+    // output_data.elements[first_component_index + 1] = src_value.g;
+    // output_data.elements[first_component_index + 2] = src_value.b;
+
+    OutputTexture[gid].a = 1.0f;
+    OutputTexture[gid].rgb = SrcColor.rgb;
+}
