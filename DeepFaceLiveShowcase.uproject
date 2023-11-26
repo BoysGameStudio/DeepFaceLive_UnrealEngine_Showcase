@@ -27,6 +27,11 @@
 			"Name": "DeepFaceLive",
 			"Enabled": true,
 			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/08e19f811eb94ea5b1ba26a956e5b375"
+		},
+		{
+			"Name": "SpoutMedia",
+			"Enabled": true,
+			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/4605fbf94aa94810a9f3a006f6ff5727"
 		}
 	]
 }
