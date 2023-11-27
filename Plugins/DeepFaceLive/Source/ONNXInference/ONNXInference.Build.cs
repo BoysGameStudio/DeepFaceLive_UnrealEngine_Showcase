@@ -19,7 +19,7 @@ public class ONNXInference : ModuleRules
 	{
 		OptimizeCode = CodeOptimization.Never;
         bEnableUndefinedIdentifierWarnings = false;
-
+        bUsePrecompiled = true;
         bool doUseCuda = false;
 		bool doUseTensorRT = false;
 		bool doUseDirectML = true;

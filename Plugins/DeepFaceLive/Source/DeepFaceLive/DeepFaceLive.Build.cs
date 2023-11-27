@@ -20,7 +20,7 @@ public class DeepFaceLive : ModuleRules
         PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
         OptimizeCode = CodeOptimization.Never;
-
+        bUsePrecompiled = true;
         PublicIncludePaths.AddRange(
             new string[]
             {

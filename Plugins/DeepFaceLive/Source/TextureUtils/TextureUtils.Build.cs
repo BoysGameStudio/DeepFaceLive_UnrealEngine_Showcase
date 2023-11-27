@@ -7,7 +7,7 @@ public class TextureUtils : ModuleRules
 	public TextureUtils(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
-		bPrecompile = true;
+		bUsePrecompiled = true;
 		OptimizeCode = CodeOptimization.Never;
         bEnableUndefinedIdentifierWarnings = false;
         PublicIncludePaths.AddRange(
