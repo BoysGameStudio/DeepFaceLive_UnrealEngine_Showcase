@@ -58,7 +58,7 @@ void BGR2LAB(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        -->
 
     float3 _rgb = InputBGR[DTid.xy].rgb;
     _rgb = sRGBToLinear(_rgb);
-    OutputLAB[LinearIndex].xyz = LinearRGB_2_LAB(_rgb);
+    OutputLAB[LinearIndex].xyz = LinearRGB_2_LAB(_rgb, XYZ_WHITE_REF_D65_NOMINAL);
 }
 
 [numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
@@ -75,7 +75,7 @@ void LAB2BGR(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        -->
     float3 _lab = InputLAB[LinearIndex].xyz;
 
     OutputBGR[DTid.xy].a = 1.0f;
-    OutputBGR[DTid.xy].rgb = LAB_2_LinearRGB(_lab);
+    OutputBGR[DTid.xy].rgb = LAB_2_LinearRGB(_lab, XYZ_WHITE_REF_D65_NOMINAL);
 }
 
 // scale by the standard deviations using reciprocal of paper proposed factor
@@ -104,5 +104,5 @@ void ConvertLAB2BGRByScaleSD(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in row
     float3 Result = (Source - SourceMean) * LikeStd / SourceStd + LikeMean;
 
     OutputBGR[DTid.xy].a = 1.0f;
-    OutputBGR[DTid.xy].rgb = LinearToSrgb(LAB_2_LinearRGB(Result));
+    OutputBGR[DTid.xy].rgb = LinearToSrgb(LAB_2_LinearRGB(Result, XYZ_WHITE_REF_D65_NOMINAL));
 }

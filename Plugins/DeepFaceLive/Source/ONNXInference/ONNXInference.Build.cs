@@ -25,7 +25,7 @@ public class ONNXInference : ModuleRules
 		bool doUseDirectML = true;
 		bool doUseNNAPI = false;
 		bool isFreeTrial = false;
-		bPrecompile = true;
+		bUsePrecompiled = true;
 		if (isFreeTrial)
 		{
 			PublicDefinitions.Add("FREE_TRIAL");
